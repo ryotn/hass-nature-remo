@@ -3,7 +3,8 @@
 import logging
 
 from homeassistant.components.climate import ClimateEntity
-from homeassistant.components.climate.const import ClimateEntityFeature, HVACMode
+from homeassistant.components.climate.const import (ClimateEntityFeature,
+                                                    HVACMode)
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import callback
 
@@ -69,6 +70,13 @@ class NatureRemoAC(NatureRemoBase, ClimateEntity):
             HVACMode.HEAT: config[CONF_HEAT_TEMP],
         }
         self._modes = appliance["aircon"]["range"]["modes"]
+        # ドライモードの風量が空文字のみならautoに置き換え
+        if (
+            "dry" in self._modes
+            and "vol" in self._modes["dry"]
+            and self._modes["dry"]["vol"] == [""]  # 空文字一個のみ
+        ):
+            self._modes["dry"]["vol"] = ["auto"]
         self._hvac_mode = None
         self._current_temperature = None
         self._target_temperature = None
@@ -193,15 +201,18 @@ class NatureRemoAC(NatureRemoBase, ClimateEntity):
         """Set new target hvac mode."""
         _LOGGER.debug("Set hvac mode: %s", hvac_mode)
         mode = MODE_HA_TO_REMO[hvac_mode]
+        data = {"operation_mode": mode}
         if mode == MODE_HA_TO_REMO[HVACMode.OFF]:
             await self._post({"button": mode})
-        else:
-            data = {"operation_mode": mode}
-            if self._last_target_temperature[mode]:
-                data["temperature"] = self._last_target_temperature[mode]
-            elif self._default_temp.get(hvac_mode):
-                data["temperature"] = self._default_temp[hvac_mode]
-            await self._post(data)
+            return
+        # ドライモード時は風量をautoに
+        #if mode == MODE_HA_TO_REMO[HVACMode.DRY]:
+        #    data["air_volume"] = "auto"
+        if self._last_target_temperature[mode]:
+            data["temperature"] = self._last_target_temperature[mode]
+        elif self._default_temp.get(hvac_mode):
+            data["temperature"] = self._default_temp[hvac_mode]
+        await self._post(data)
 
     async def async_set_fan_mode(self, fan_mode):
         """Set new target fan mode."""
@@ -238,7 +249,12 @@ class NatureRemoAC(NatureRemoBase, ClimateEntity):
         else:
             self._hvac_mode = MODE_REMO_TO_HA[self._remo_mode]
 
-        self._fan_mode = ac_settings["vol"] or None
+        # dryならfan_modeは必ずauto
+        if self._remo_mode == "dry":
+            self._fan_mode = "auto"
+        else:
+            self._fan_mode = ac_settings["vol"] or None
+
         self._swing_mode = ac_settings["dir"] or None
 
         if device is not None:
