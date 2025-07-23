@@ -150,6 +150,9 @@ class NatureRemoAC(NatureRemoBase, ClimateEntity):
     @property
     def fan_mode(self):
         """Return the fan setting."""
+        if self._remo_mode == "dry":
+            return "auto"
+        
         return self._fan_mode
 
     @property
